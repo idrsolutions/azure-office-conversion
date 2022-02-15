@@ -3,10 +3,13 @@ package com.idrsolutions.service;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.idrsolutions.util.MimeMap;
 import org.apache.http.Header;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.InputStreamEntity;
@@ -17,8 +20,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.net.FileNameMap;
-import java.net.URLConnection;
 import java.util.UUID;
 
 public class FileService {
@@ -32,21 +33,22 @@ public class FileService {
         return new BasicHeader("Authorization", "Bearer " + auth);
     }
 
-    public static String uploadStream(String path, InputStream content, String contentType) {
+    public static String uploadStream(String path, InputStream content, long contentLength, String contentType) {
         HttpClient client = HttpClients.createDefault();
 
-        String fileName = UUID.randomUUID().toString() + ".tmp";
+        String fileName = UUID.randomUUID() + "." + MimeMap.getExtension(contentType);
 
         HttpPut put = new HttpPut(path + "root:/" + fileName + ":/content");
         put.addHeader(createAuthorisedHeader());
 
-        put.setEntity(new InputStreamEntity(content));
-        put.setHeader("Content-type", contentType);
+        InputStreamEntity entity = new InputStreamEntity(content, contentLength, ContentType.create(contentType));
+        entity.setChunked(true);
+        put.setEntity(entity);
 
         try {
             HttpResponse response = client.execute(put);
 
-            if (response.getStatusLine().getStatusCode() == 200) {
+            if (response.getStatusLine().getStatusCode() < 300) {
                 Reader reader = new InputStreamReader(response.getEntity().getContent());
                 Gson gson = new Gson();
                 JsonObject json = gson.fromJson(reader, JsonObject.class);
@@ -60,6 +62,42 @@ public class FileService {
          } catch (IOException | HttpException e) {
             e.printStackTrace();
         }
+
         return null;
+    }
+
+    public static byte[] downloadConvertedFile(String path, String fileId, String targetFormat) {
+        HttpClient client = HttpClients.createDefault();
+
+        HttpGet get = new HttpGet(path + fileId + "/content?format=" + targetFormat);
+        get.addHeader(createAuthorisedHeader());
+
+        try {
+            HttpResponse response = client.execute(get);
+
+            if (response.getStatusLine().getStatusCode() < 300) {
+                return response.getEntity().getContent().readAllBytes();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return null;
+    }
+
+    public static void deleteFile(String path, String fileId) {
+        HttpClient client = HttpClients.createDefault();
+
+        HttpDelete delete = new HttpDelete(path + fileId);
+        delete.addHeader(createAuthorisedHeader());
+
+        try {
+            HttpResponse response = client.execute(delete);
+            if (response.getStatusLine().getStatusCode() >= 300) {
+                throw new HttpException("Failed to delete file");
+            }
+        } catch (IOException | HttpException e) {
+            e.printStackTrace();
+        }
     }
 }
