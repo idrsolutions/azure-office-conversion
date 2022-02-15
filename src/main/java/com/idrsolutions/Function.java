@@ -1,6 +1,7 @@
 package com.idrsolutions;
 
-import com.idrsolutions.service.AuthService;
+import com.idrsolutions.service.FileService;
+import com.idrsolutions.util.MimeMap;
 import com.microsoft.azure.functions.ExecutionContext;
 import com.microsoft.azure.functions.HttpMethod;
 import com.microsoft.azure.functions.HttpRequestMessage;
@@ -10,6 +11,8 @@ import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
 
+import java.io.*;
+import java.nio.file.Path;
 import java.util.Optional;
 
 /**
@@ -20,23 +23,37 @@ public class Function {
     public HttpResponseMessage run(
             @HttpTrigger(
                 name = "req",
-                methods = {HttpMethod.GET, HttpMethod.POST},
+                route = "convert",
+                methods = {HttpMethod.POST},
                 authLevel = AuthorizationLevel.ANONYMOUS)
-                HttpRequestMessage<Optional<String>> request,
+                HttpRequestMessage<Optional<byte[]>> request,
             final ExecutionContext context) {
         context.getLogger().info("Java HTTP trigger processed a request.");
-        context.getLogger().info("Value: " + System.getenv("testSetting"));
 
-        // Parse query parameter
-        final String query = request.getQueryParameters().get("name");
-        final String name = request.getBody().orElse(query);
+        // TODO: Check valid request
+        // TODO: Get file and length and mimetype
+        // TODO: Return conversion result
 
-        String accessToken = AuthService.getAccessToken();
+        try {
+            String mimeType = MimeMap.getMimeType(filePath.toString().substring(filePath.toString().lastIndexOf(".") + 1));
 
-        if (name == null) {
-            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Please pass a name on the query string or in the request body").build();
-        } else {
-            return request.createResponseBuilder(HttpStatus.OK).body("Hello, " + name).build();
+            String path = System.getenv("pdf:GraphEndpoint") + "sites/" + System.getenv("pdf:SiteId") + "/drive/items/";
+            String fileId = FileService.uploadStream(path, stream, filePath.toFile().length(), mimeType);
+
+            if (fileId == null) {
+                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Failed to upload file to sharepoint").build();
+            }
+
+            byte[] pdf = FileService.downloadConvertedFile(path, fileId, "pdf");
+            FileService.deleteFile(path, fileId);
+            if (pdf == null) {
+                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Failed to convert file").build();
+            }
+
+            return request.createResponseBuilder(HttpStatus.OK).
+
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }
