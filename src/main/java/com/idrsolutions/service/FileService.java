@@ -26,6 +26,9 @@ import java.util.UUID;
 public class FileService {
     private static String auth;
 
+    /**
+     * Creates a header that contains the authorisation required to make requests to our azure environment
+     */
     private static Header createAuthorisedHeader() {
         if (auth == null) {
             auth = AuthService.getAccessToken();

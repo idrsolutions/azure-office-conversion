@@ -19,6 +19,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AuthService {
+
+    /**
+     * Requests an access token from Azure to authorise future requests with
+     * @return
+     */
     public static String getAccessToken() {
         List<NameValuePair> values = new ArrayList<>();
         values.add(new BasicNameValuePair("client_id", System.getenv("graph:ClientId")));
