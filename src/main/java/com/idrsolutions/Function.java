@@ -10,6 +10,7 @@ import com.microsoft.azure.functions.HttpStatus;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
+import org.apache.http.HttpException;
 
 import java.io.*;
 import java.nio.file.Path;
@@ -25,35 +26,51 @@ public class Function {
                 name = "req",
                 route = "convert",
                 methods = {HttpMethod.POST},
-                authLevel = AuthorizationLevel.ANONYMOUS)
+                authLevel = AuthorizationLevel.ANONYMOUS,
+                dataType = "binary")
                 HttpRequestMessage<Optional<byte[]>> request,
             final ExecutionContext context) {
         context.getLogger().info("Java HTTP trigger processed a request.");
 
-        // TODO: Check valid request
-        // TODO: Get file and length and mimetype
-        // TODO: Return conversion result
+        if (request.getBody().isEmpty()) {
+            return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("File must be attached to request").build();
+        }
 
-        try {
-            String mimeType = MimeMap.getMimeType(filePath.toString().substring(filePath.toString().lastIndexOf(".") + 1));
+        byte[] body = request.getBody().get();
 
-            String path = System.getenv("pdf:GraphEndpoint") + "sites/" + System.getenv("pdf:SiteId") + "/drive/items/";
-            String fileId = FileService.uploadStream(path, stream, filePath.toFile().length(), mimeType);
+        String mimeType = request.getHeaders().get("content-type-actual");
 
-            if (fileId == null) {
-                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Failed to upload file to sharepoint").build();
-            }
+        if (mimeType == null || mimeType.isEmpty()) {
+            return request.createResponseBuilder(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Please provide the file's mime-type in the header with the key: Content-Type-Actual").build();
+        }
+
+        if (!MimeMap.checkOfficeMimeType(mimeType)) {
+            return request.createResponseBuilder(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Content-Type-Actual must be a valid office type").build();
+        }
+
+        String path = System.getenv("pdf:GraphEndpoint") + "sites/" + System.getenv("pdf:SiteId") + "/drive/items/";
+        String fileId = null;
+
+        try (InputStream stream = new ByteArrayInputStream(body)) {
+            fileId = FileService.uploadStream(path, stream, body.length, mimeType);
 
             byte[] pdf = FileService.downloadConvertedFile(path, fileId, "pdf");
-            FileService.deleteFile(path, fileId);
-            if (pdf == null) {
-                return request.createResponseBuilder(HttpStatus.BAD_REQUEST).body("Failed to convert file").build();
-            }
 
-            return request.createResponseBuilder(HttpStatus.OK).
-
+            return request.createResponseBuilder(HttpStatus.OK).body(pdf).build();
         } catch (IOException e) {
             e.printStackTrace();
+            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        } catch (HttpException e) {
+            context.getLogger().warning(e.getMessage());
+            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();
+        } finally {
+            if (fileId != null) {
+                try {
+                    FileService.deleteFile(path, fileId);
+                } catch (HttpException | IOException e) {
+                    context.getLogger().warning(e.getMessage());
+                }
+            }
         }
     }
 }
