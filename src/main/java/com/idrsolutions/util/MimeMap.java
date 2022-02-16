@@ -47,6 +47,10 @@ public class MimeMap {
         return map.get(extension);
     }
 
+    public static boolean checkOfficeMimeType(String mimeType) {
+        return map.containsValue(mimeType);
+    }
+
     public static String getExtension(String mimeType) {
         Optional<Map.Entry<String, String>> extension = map.entrySet().stream().filter((entry) -> entry.getValue().equals(mimeType)).findFirst();
 
