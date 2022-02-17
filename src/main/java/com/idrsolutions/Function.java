@@ -20,7 +20,7 @@ import java.util.Optional;
  * Azure Functions with HTTP Trigger.
  */
 public class Function {
-    @FunctionName("HttpExample")
+    @FunctionName("Office2PDF")
     public HttpResponseMessage run(
             @HttpTrigger(
                 name = "req",
@@ -58,7 +58,7 @@ public class Function {
             return request.createResponseBuilder(HttpStatus.OK).body(pdf).build();
         } catch (IOException e) {
             context.getLogger().warning(e.getMessage());
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();
         } catch (HttpException e) {
             context.getLogger().warning(e.getMessage());
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();

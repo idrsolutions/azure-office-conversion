@@ -11,10 +11,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>1.8</java.version>
+        <java.version>11</java.version>
         <azure.functions.maven.plugin.version>1.15.0</azure.functions.maven.plugin.version>
         <azure.functions.java.library.version>1.4.2</azure.functions.java.library.version>
-        <functionAppName>azure-pdf-convesion-20220214104143991</functionAppName>
+        <functionAppName>Office2PDF</functionAppName>
     </properties>
 
     <dependencies>
@@ -73,7 +73,7 @@
                     <!-- function app name -->
                     <appName>${functionAppName}</appName>
                     <!-- function app resource group -->
-                    <resourceGroup>java-functions-group</resourceGroup>
+                    <resourceGroup>Office2PDF</resourceGroup>
                     <!-- function app service plan name -->
                     <appServicePlanName>java-functions-app-service-plan</appServicePlanName>
                     <!-- function app region-->
