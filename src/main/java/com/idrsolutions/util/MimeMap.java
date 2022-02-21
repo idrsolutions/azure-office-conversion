@@ -5,9 +5,12 @@ import java.util.Map;
 import java.util.Optional;
 
 public class MimeMap {
+    // The map between extensions and Mimetypes
     private static final HashMap<String, String> map = new HashMap<>();
 
     static {
+        // Add each office file extension and it's mimetype to the map
+        // The source of these mappings can be found here: https://stackoverflow.com/a/4212908
         map.put("doc", "application/msword");
         map.put("dot", "application/msword");
 

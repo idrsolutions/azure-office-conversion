@@ -8,7 +8,6 @@ import org.apache.http.Header;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpDelete;
@@ -35,7 +34,7 @@ public class FileService {
     /**
      * Requests an access token from Azure to authorise future requests with
      */
-    public static String getAccessToken() {
+    public static String getAccessToken() throws IOException, HttpException {
         List<NameValuePair> values = new ArrayList<>();
         values.add(new BasicNameValuePair("client_id", System.getenv("graph:ClientId")));
         values.add(new BasicNameValuePair("client_secret", System.getenv("graph:ClientSecret")));
@@ -48,29 +47,25 @@ public class FileService {
         HttpClient client = HttpClients.createDefault();
 
         HttpPost post = new HttpPost(path);
-        try {
-            post.setEntity(new UrlEncodedFormEntity(values));
-            HttpResponse response = client.execute(post);
-            if (response.getStatusLine().getStatusCode() == 200) {
-                Reader reader = new InputStreamReader(response.getEntity().getContent());
-                Gson gson = new Gson();
-                JsonObject json = gson.fromJson(reader, JsonObject.class);
+        post.setEntity(new UrlEncodedFormEntity(values));
+        HttpResponse response = client.execute(post);
+        if (response.getStatusLine().getStatusCode() == 200) {
+            Reader reader = new InputStreamReader(response.getEntity().getContent());
+            Gson gson = new Gson();
+            JsonObject json = gson.fromJson(reader, JsonObject.class);
 
-                JsonElement token = json.get("access_token");
+            JsonElement token = json.get("access_token");
 
-                return token != null ? token.getAsString() : null;
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
+            return token != null ? token.getAsString() : null;
+        } else {
+            throw new HttpException("Failed to get access token: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
         }
-
-        return null;
     }
 
     /**
      * Creates a header that contains the authorisation required to make requests to our azure environment
      */
-    private static Header createAuthorisedHeader() {
+    private static Header createAuthorisedHeader() throws IOException, HttpException {
         if (auth == null) {
             auth = getAccessToken();
         }
@@ -78,6 +73,16 @@ public class FileService {
         return new BasicHeader("Authorization", "Bearer " + auth);
     }
 
+    /**
+     * Uploads the given file to the given sharepoint storage
+     * @param path The sharepoint address
+     * @param content An input stream of the file being uploaded
+     * @param contentLength The length in bytes of the file being uploaded
+     * @param contentType The Mimetype of the file being uploaded
+     * @return The id of the file in the sharepoint storage
+     * @throws HttpException when an unexpected answer is received while making an HTTP Request
+     * @throws IOException when an HTTP request fails
+     */
     public static String uploadStream(String path, InputStream content, long contentLength, String contentType) throws HttpException, IOException {
         HttpClient client = HttpClients.createDefault();
 
@@ -107,6 +112,15 @@ public class FileService {
         }
     }
 
+    /**
+     * Download the file with the given fileId in the targetFormat
+     * @param path The sharepoint address
+     * @param fileId The ID of the file to download
+     * @param targetFormat The target format to download the file in
+     * @return a byte array containing the converted file
+     * @throws HttpException when an unexpected answer is received while making an HTTP Request
+     * @throws IOException when an HTTP request fails or the converted file cannot be read from the response
+     */
     public static byte[] downloadConvertedFile(String path, String fileId, String targetFormat) throws IOException, HttpException {
         HttpClient client = HttpClients.createDefault();
 
@@ -122,6 +136,13 @@ public class FileService {
         }
     }
 
+    /**
+     * Delete the file with the given fileId
+     * @param path The sharepoint address
+     * @param fileId The ID of the file to delete
+     * @throws HttpException when an unexpected answer is received while making an HTTP Request
+     * @throws IOException when an HTTP request fails
+     */
     public static void deleteFile(String path, String fileId) throws HttpException, IOException {
         HttpClient client = HttpClients.createDefault();
 
