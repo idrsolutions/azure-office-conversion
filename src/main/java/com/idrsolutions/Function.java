@@ -49,7 +49,7 @@ public class Function {
         String fileId = null;
 
         try (InputStream stream = new ByteArrayInputStream(body)) {
-            fileId = FileService.uploadStream(path, stream, body.length, mimeType);
+            fileId = FileService.uploadStream(context, path, stream, body.length, mimeType);
             byte[] pdf = FileService.downloadConvertedFile(path, fileId, "pdf");
 
             return request.createResponseBuilder(HttpStatus.OK).body(pdf).build();

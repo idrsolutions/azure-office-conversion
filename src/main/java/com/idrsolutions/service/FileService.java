@@ -1,9 +1,23 @@
 package com.idrsolutions.service;
 
+import com.azure.core.credential.TokenCredential;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.idrsolutions.util.MimeMap;
+import com.microsoft.azure.functions.ExecutionContext;
+import com.microsoft.graph.auth.confidentialClient.ClientCredentialProvider;
+import com.microsoft.graph.auth.enums.NationalCloud;
+import com.microsoft.graph.authentication.TokenCredentialAuthProvider;
+import com.microsoft.graph.models.DriveItem;
+import com.microsoft.graph.models.DriveItemCreateUploadSessionParameterSet;
+import com.microsoft.graph.models.DriveItemUploadableProperties;
+import com.microsoft.graph.models.UploadSession;
+import com.microsoft.graph.requests.GraphServiceClient;
+import com.microsoft.graph.tasks.IProgressCallback;
+import com.microsoft.graph.tasks.LargeFileUploadResult;
+import com.microsoft.graph.tasks.LargeFileUploadTask;
+import okhttp3.Request;
 import org.apache.http.Header;
 import org.apache.http.HttpException;
 import org.apache.http.HttpResponse;
@@ -25,6 +39,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -83,33 +98,55 @@ public class FileService {
      * @throws HttpException when an unexpected answer is received while making an HTTP Request
      * @throws IOException when an HTTP request fails
      */
-    public static String uploadStream(String path, InputStream content, long contentLength, String contentType) throws HttpException, IOException {
-        HttpClient client = HttpClients.createDefault();
+    public static String uploadStream(ExecutionContext context, String path, InputStream content, long contentLength, String contentType) throws IOException {
+        List<String> scopes = Arrays.asList(System.getenv("graph:Scope").split(","));
+
+        GraphServiceClient<Request> graphClient = GraphServiceClient
+                .builder()
+                .authenticationProvider(
+                    new ClientCredentialProvider(
+                        System.getenv("graph:ClientId"),
+                        scopes,
+                        System.getenv("graph:ClientSecret"),
+                        System.getenv("graph:TenantId"),
+                        null
+                    )
+                )
+                .buildClient();
 
         String fileName = UUID.randomUUID() + "." + MimeMap.getExtension(contentType);
 
-        HttpPut put = new HttpPut(path + "root:/" + fileName + ":/content");
-        put.addHeader(createAuthorisedHeader());
+        IProgressCallback callback = (current, max) ->
+                context.getLogger().info(String.format("Uploaded %d of %d bytes", current, max));
 
-        InputStreamEntity entity = new InputStreamEntity(content, contentLength, ContentType.create(contentType));
-        entity.setChunked(true);
-        put.setEntity(entity);
+        DriveItemCreateUploadSessionParameterSet uploadParams = DriveItemCreateUploadSessionParameterSet
+                .newBuilder()
+                .withItem(new DriveItemUploadableProperties())
+                .build();
 
-        HttpResponse response = client.execute(put);
+        UploadSession session = graphClient
+                .sites(System.getenv("pdf:SiteId"))
+                .drive()
+                .root()
+                .itemWithPath(fileName)
+                .createUploadSession(uploadParams)
+                .buildRequest()
+                .post();
 
-        if (response.getStatusLine().getStatusCode() < 300) {
-            Reader reader = new InputStreamReader(response.getEntity().getContent());
-            Gson gson = new Gson();
-            JsonObject json = gson.fromJson(reader, JsonObject.class);
+        LargeFileUploadTask<DriveItem> largeFileUploadTask = new LargeFileUploadTask<>(
+                session,
+                graphClient,
+                content,
+                contentLength,
+                DriveItem.class);
 
-            JsonElement token = json.get("id");
+        LargeFileUploadResult<DriveItem> result = largeFileUploadTask.upload(0, null, callback);
 
-            if (token == null) throw new HttpException("Failed to upload file to sharepoint: response did not contain file ID");
-
-            return token.getAsString();
-        } else {
-            throw new HttpException("Failed to upload file to sharepoint: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
+        if (result.responseBody != null) {
+            return result.responseBody.id;
         }
+
+        return null;
     }
 
     /**
