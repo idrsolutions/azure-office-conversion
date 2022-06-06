@@ -37,7 +37,7 @@ public class FileService {
 
     /**
      * Get a DriveItemRequestBuilder already at the root of the configured sharepoint site
-     * @return
+     * @return A DriveItemRequestBuilder at the site root
      */
     private static DriveItemRequestBuilder getSharepointSiteRoot() {
         return graphClient
