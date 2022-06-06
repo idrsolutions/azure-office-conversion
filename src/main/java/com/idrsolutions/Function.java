@@ -6,7 +6,7 @@ import com.microsoft.azure.functions.*;
 import com.microsoft.azure.functions.annotation.AuthorizationLevel;
 import com.microsoft.azure.functions.annotation.FunctionName;
 import com.microsoft.azure.functions.annotation.HttpTrigger;
-import org.apache.http.HttpException;
+import com.microsoft.graph.core.ClientException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -45,18 +45,14 @@ public class Function {
             return request.createResponseBuilder(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body("Content-Type-Actual must be a valid office type").build();
         }
 
-        String path = System.getenv("pdf:GraphEndpoint") + "sites/" + System.getenv("pdf:SiteId") + "/drive/items/";
         String fileId = null;
 
         try (InputStream stream = new ByteArrayInputStream(body)) {
-            fileId = FileService.uploadStream(path, stream, body.length, mimeType);
-            byte[] pdf = FileService.downloadConvertedFile(path, fileId, "pdf");
+            fileId = FileService.uploadStream(context, stream, body.length, mimeType);
+            byte[] pdf = FileService.downloadConvertedFile(fileId, "pdf");
 
             return request.createResponseBuilder(HttpStatus.OK).body(pdf).build();
-        } catch (IOException e) {
-            context.getLogger().warning(e.getMessage());
-            return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();
-        } catch (HttpException e) {
+        } catch (IOException | ClientException e) {
             context.getLogger().warning(e.getMessage());
             return request.createResponseBuilder(HttpStatus.INTERNAL_SERVER_ERROR).body(e.getMessage()).build();
         } finally {
@@ -64,8 +60,8 @@ public class Function {
             // deleted, successful conversion or not
             if (fileId != null) {
                 try {
-                    FileService.deleteFile(path, fileId);
-                } catch (HttpException | IOException e) {
+                    FileService.deleteFile(fileId);
+                } catch (ClientException e) {
                     context.getLogger().warning(e.getMessage());
                 }
             }

@@ -1,157 +1,128 @@
 package com.idrsolutions.service;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.azure.identity.ClientSecretCredentialBuilder;
 import com.idrsolutions.util.MimeMap;
-import org.apache.http.Header;
-import org.apache.http.HttpException;
-import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicHeader;
-import org.apache.http.message.BasicNameValuePair;
+import com.microsoft.azure.functions.ExecutionContext;
+import com.microsoft.graph.authentication.TokenCredentialAuthProvider;
+import com.microsoft.graph.core.ClientException;
+import com.microsoft.graph.models.DriveItem;
+import com.microsoft.graph.models.DriveItemCreateUploadSessionParameterSet;
+import com.microsoft.graph.models.DriveItemUploadableProperties;
+import com.microsoft.graph.models.UploadSession;
+import com.microsoft.graph.options.QueryOption;
+import com.microsoft.graph.requests.DriveItemRequestBuilder;
+import com.microsoft.graph.requests.GraphServiceClient;
+import com.microsoft.graph.tasks.IProgressCallback;
+import com.microsoft.graph.tasks.LargeFileUploadResult;
+import com.microsoft.graph.tasks.LargeFileUploadTask;
+import okhttp3.Request;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 public class FileService {
-    private static String auth;
+    private static final GraphServiceClient<Request> graphClient = GraphServiceClient
+            .builder()
+            .authenticationProvider(
+                    new TokenCredentialAuthProvider(
+                            new ClientSecretCredentialBuilder()
+                                    .clientId(System.getenv("graph:ClientId"))
+                                    .clientSecret(System.getenv("graph:ClientSecret"))
+                                    .tenantId(System.getenv("graph:TenantId"))
+                                    .build()
+                    )
+            )
+            .buildClient();
 
     /**
-     * Requests an access token from Azure to authorise future requests with
+     * Get a DriveItemRequestBuilder already at the root of the configured sharepoint site
+     * @return A DriveItemRequestBuilder at the site root
      */
-    public static String getAccessToken() throws IOException, HttpException {
-        List<NameValuePair> values = new ArrayList<>();
-        values.add(new BasicNameValuePair("client_id", System.getenv("graph:ClientId")));
-        values.add(new BasicNameValuePair("client_secret", System.getenv("graph:ClientSecret")));
-        values.add(new BasicNameValuePair("scope", System.getenv("graph:Scope")));
-        values.add(new BasicNameValuePair("grant_type", System.getenv("graph:GrantType")));
-        values.add(new BasicNameValuePair("resource", System.getenv("graph:Resource")));
-
-        String path = System.getenv("graph:EndPoint") + System.getenv("graph:TenantId") + "/oauth2/token";
-
-        HttpClient client = HttpClients.createDefault();
-
-        HttpPost post = new HttpPost(path);
-        post.setEntity(new UrlEncodedFormEntity(values));
-        HttpResponse response = client.execute(post);
-        if (response.getStatusLine().getStatusCode() == 200) {
-            Reader reader = new InputStreamReader(response.getEntity().getContent());
-            Gson gson = new Gson();
-            JsonObject json = gson.fromJson(reader, JsonObject.class);
-
-            JsonElement token = json.get("access_token");
-
-            return token != null ? token.getAsString() : null;
-        } else {
-            throw new HttpException("Failed to get access token: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
-        }
-    }
-
-    /**
-     * Creates a header that contains the authorisation required to make requests to our azure environment
-     */
-    private static Header createAuthorisedHeader() throws IOException, HttpException {
-        if (auth == null) {
-            auth = getAccessToken();
-        }
-
-        return new BasicHeader("Authorization", "Bearer " + auth);
+    private static DriveItemRequestBuilder getSharepointSiteRoot() {
+        return graphClient
+                .sites(System.getenv("pdf:SiteId"))
+                .drive()
+                .root();
     }
 
     /**
      * Uploads the given file to the given sharepoint storage
-     * @param path The sharepoint address
      * @param content An input stream of the file being uploaded
      * @param contentLength The length in bytes of the file being uploaded
      * @param contentType The Mimetype of the file being uploaded
      * @return The id of the file in the sharepoint storage
-     * @throws HttpException when an unexpected answer is received while making an HTTP Request
-     * @throws IOException when an HTTP request fails
+     * @throws IOException when the upload fails
+     * @throws ClientException when the post request fails
      */
-    public static String uploadStream(String path, InputStream content, long contentLength, String contentType) throws HttpException, IOException {
-        HttpClient client = HttpClients.createDefault();
-
+    public static String uploadStream(ExecutionContext context, InputStream content, long contentLength, String contentType) throws ClientException, IOException {
         String fileName = UUID.randomUUID() + "." + MimeMap.getExtension(contentType);
 
-        HttpPut put = new HttpPut(path + "root:/" + fileName + ":/content");
-        put.addHeader(createAuthorisedHeader());
+        IProgressCallback callback = (current, max) ->
+                context.getLogger().info(String.format("Uploaded %d of %d bytes", current, max));
 
-        InputStreamEntity entity = new InputStreamEntity(content, contentLength, ContentType.create(contentType));
-        entity.setChunked(true);
-        put.setEntity(entity);
+        DriveItemCreateUploadSessionParameterSet uploadParams = DriveItemCreateUploadSessionParameterSet
+                .newBuilder()
+                .withItem(new DriveItemUploadableProperties())
+                .build();
 
-        HttpResponse response = client.execute(put);
+        UploadSession session = getSharepointSiteRoot()
+                .itemWithPath(fileName)
+                .createUploadSession(uploadParams)
+                .buildRequest()
+                .post();
 
-        if (response.getStatusLine().getStatusCode() < 300) {
-            Reader reader = new InputStreamReader(response.getEntity().getContent());
-            Gson gson = new Gson();
-            JsonObject json = gson.fromJson(reader, JsonObject.class);
+        LargeFileUploadTask<DriveItem> largeFileUploadTask = new LargeFileUploadTask<>(
+                session,
+                graphClient,
+                content,
+                contentLength,
+                DriveItem.class);
 
-            JsonElement token = json.get("id");
+        LargeFileUploadResult<DriveItem> result = largeFileUploadTask.upload(0, null, callback);
 
-            if (token == null) throw new HttpException("Failed to upload file to sharepoint: response did not contain file ID");
-
-            return token.getAsString();
-        } else {
-            throw new HttpException("Failed to upload file to sharepoint: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
+        if (result.responseBody != null) {
+            return result.responseBody.id;
         }
+
+        return null;
     }
 
     /**
      * Download the file with the given fileId in the targetFormat
-     * @param path The sharepoint address
      * @param fileId The ID of the file to download
      * @param targetFormat The target format to download the file in
      * @return a byte array containing the converted file
-     * @throws HttpException when an unexpected answer is received while making an HTTP Request
-     * @throws IOException when an HTTP request fails or the converted file cannot be read from the response
+     * @throws ClientException when the graph api request failsw
+     * @throws IOException when the converted file cannot be read from the response
      */
-    public static byte[] downloadConvertedFile(String path, String fileId, String targetFormat) throws IOException, HttpException {
-        HttpClient client = HttpClients.createDefault();
+    public static byte[] downloadConvertedFile(String fileId, String targetFormat) throws IOException, ClientException {
+        // It seems that the Java API is lacking a proper download function for items, we will need to make a custom request for the resource
+        try (
+                InputStream stream = graphClient
+                    .customRequest("/sites/" + System.getenv("pdf:SiteId") + "/drive/items/" + fileId + "/content", InputStream.class)
+                    .buildRequest(new QueryOption("format", targetFormat))
+                    .get()
+        ) {
+            if (stream != null) {
+                return stream.readAllBytes();
+            }
 
-        HttpGet get = new HttpGet(path + fileId + "/content?format=" + targetFormat);
-        get.addHeader(createAuthorisedHeader());
-
-        HttpResponse response = client.execute(get);
-
-        if (response.getStatusLine().getStatusCode() < 300) {
-            return response.getEntity().getContent().readAllBytes();
-        } else {
-            throw new HttpException("Failed to fetch converted file: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
+            throw new IOException("Failed to read file from response");
         }
     }
 
     /**
      * Delete the file with the given fileId
-     * @param path The sharepoint address
      * @param fileId The ID of the file to delete
-     * @throws HttpException when an unexpected answer is received while making an HTTP Request
-     * @throws IOException when an HTTP request fails
+     * @throws ClientException when the graph api request fails
      */
-    public static void deleteFile(String path, String fileId) throws HttpException, IOException {
-        HttpClient client = HttpClients.createDefault();
+    public static void deleteFile(String fileId) throws ClientException {
+        DriveItem item = getSharepointSiteRoot()
+                .itemWithPath(fileId)
+                .buildRequest()
+                .delete();
 
-        HttpDelete delete = new HttpDelete(path + fileId);
-        delete.addHeader(createAuthorisedHeader());
-
-        HttpResponse response = client.execute(delete);
-        if (response.getStatusLine().getStatusCode() >= 300) {
-            throw new HttpException("Failed to delete file: " + response.getStatusLine().getStatusCode() + " - " + response.getStatusLine().getReasonPhrase());
-        }
+        System.out.println(item.deleted.state);
     }
 }
