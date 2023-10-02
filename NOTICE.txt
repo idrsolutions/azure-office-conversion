@@ -5,4 +5,4 @@ Please visit the IDRSolutions implementations of the base microservice for proje
   * https://github.com/idrsolutions/buildvu-microservice-example
   * https://github.com/idrsolutions/jpedal-microservice-example
 
-Copyright 202 - 2023 IDRsolutions
+Copyright 2022 - 2023 IDRsolutions
