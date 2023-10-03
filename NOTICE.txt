@@ -1,8 +1,3 @@
-                        Azure Office Conversion Utility
-                        ===============================
-
-Please visit the IDRSolutions implementations of the base microservice for projects this utility is compatible with:
-  * https://github.com/idrsolutions/buildvu-microservice-example
-  * https://github.com/idrsolutions/jpedal-microservice-example
+Azure Office Conversion Utility
 
 Copyright 2022 - 2023 IDRsolutions
