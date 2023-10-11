@@ -1,0 +1,3 @@
+Azure Office Conversion Utility
+
+Copyright 2022 - 2023 IDRsolutions
